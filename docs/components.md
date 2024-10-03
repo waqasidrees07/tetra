@@ -235,16 +235,30 @@ bypass wrapping elements when a block was not used:
 {% endif %}
 ```
 
-## Dynamic component names
+## Extra context
 
-Sometimes you want to determine the component name at runtime, e.g. when the components are part of a plugin system, or when you render components in a for loop. Tetra allows you to  determinie the component name at runtime. Just use the `=` character before the variable name:
+By default, outer template context is not passed down to the component's template when rendering; this is to optimise the size of the saved component state.
+If you need a component class to generally receive some context variables, you can set that explicitly using `_extra_context` in the class:
 
-```django
-{% for component in components %}
-    {% @ =component /%}
-{% endfor %}
+```python
+class MyComponent(BasicComponent):
+    _extra_context = ["user", "a_context_var"]
+    ...
 ```
 
+This component has access to the global `user` and `a_context_var` variables.
+If a component needs the whole context, you can add the "__all__" string instead of a list:
+
+```python
+class MyComponent(BasicComponent):
+    _extra_context = "__all__"
+```
+
+!!! warning
+    You want to use `__all__` mostly in `BasicComponent`s which have no saved state.
+    It should be used sparingly in a `Component` as the whole template context will be saved with the component's saved (encrypted) state, and sent to the client, see [state security](state-security.md).
+
+Explicitly passed variables [in component tags](component-tag.md#passing-context) will override this behaviour.
 
 
 ## Client side JavaScript
@@ -318,7 +332,7 @@ class MyComponent(Component):
     """
 ```
 
-If is implemented as a queue that is sent to the client after thee public method returns. The client they calls all scheduled callbacks with the provided arguments.
+It is implemented as a queue that is sent to the client after thee public method returns. The client they calls all scheduled callbacks with the provided arguments.
 
 Arguments must be of the same types as our extended JSON, see [public attributes](#public-attributes) for details.
 

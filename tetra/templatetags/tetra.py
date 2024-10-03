@@ -1,3 +1,6 @@
+import logging
+import warnings
+
 from django import template
 from django.template.loader_tags import BlockNode, BLOCK_CONTEXT_KEY
 from django.apps import apps
@@ -9,6 +12,8 @@ from threading import local
 
 from ..components import ComponentException
 from ..component_register import resolve_component
+
+logger = logging.getLogger(__name__)
 
 
 class TetraTemplateTagException(Exception):
@@ -77,7 +82,7 @@ def do_component(parser, token):
         has_content = False
         bits = bits[:-1]
 
-    # bits can be split in to sections stating with one of:
+    # bits can be split into sections stating with one of:
     # 'args:', 'attrs:' or 'context:'
     # The fist section defaults to 'args:' if it  is unprefixed.
     bits_grouped = {
@@ -133,13 +138,26 @@ def do_component(parser, token):
             )
 
     # Context bits:
-    if "**context" in bits_grouped["context:"]:
+    if "__all__" in bits_grouped["context:"]:
         if len(bits_grouped["context:"]) > 1:
             raise template.TemplateSyntaxError(
-                f"Component '{component_name}' multiple context arguments as well a "
+                f"__all__ and multiple context arguments are mutually exclusive in "
+                f"Component '{component_name}'."
+            )
+        context_args = ALL_CONTEXT
+    elif "**context" in bits_grouped["context:"]:
+        # TODO: remove in 1.0
+        if len(bits_grouped["context:"]) > 1:
+            raise template.TemplateSyntaxError(
+                f"Component '{component_name}' has multiple context arguments as well a "
                 "**context for all context."
             )
         context_args = ALL_CONTEXT
+        warnings.warn(
+            f"Component '{component_name}': 'context: **context' is deprecated and "
+            f"will be removed in future versions of Tetra. Please use 'context: __all__' instead.",
+            DeprecationWarning,
+        )
     else:
         context_args = {}
         for bit in bits_grouped["context:"]:
@@ -171,7 +189,7 @@ def do_component(parser, token):
         nodelist = parser.parse((f"/@",))
         if not current_loaded_blocks is None:
             parser.__loaded_blocks = (
-                current_loaded_blocks  # Return origional __loaded_blocks
+                current_loaded_blocks  # Return original __loaded_blocks
             )
         parser.delete_first_token()
 
@@ -242,27 +260,11 @@ class ComponentNode(template.Node):
             )
 
     def render(self, context):
-        # when component starts with "=", assume it is a dynamic variable name
-        if self.component_name.startswith("="):
-            # Handle dotted paths for dynamic component names
-            self.component_name = self.component_name[1:]
-            path = self.component_name.split(".")
-            # traverse the context for the component name
-            c = context
-            for part in path:
-                try:
-                    c = c[part]
-                except TypeError:
-                    c = getattr(c, part, None)
-                if c is None:
-                    raise ComponentException(
-                        f"Unable to resolve dynamic component: '"
-                        f"{self.component_name}'"
-                    )
-            Component = c
-        else:
-            Component = resolve_component(context, self.component_name)
-
+        """
+        :param context: The template context in which the component is being rendered. It must include the "request" attribute.
+        :return: The rendered component as a tag string or directly rendered component as per the resolved state.
+        """
+        Component = resolve_component(context, self.component_name)
         try:
             request = context.request
         except AttributeError:
@@ -274,10 +276,31 @@ class ComponentNode(template.Node):
         resolved_kwargs = {k: v.resolve(context) for k, v in self.kwargs.items()}
         resolved_attrs = {k: v.resolve(context) for k, v in self.attrs.items()}
 
-        if self.context_args == ALL_CONTEXT:
+        extra_context = getattr(Component, "_extra_context", [])
+        if type(extra_context) == str:
+            extra_context = [extra_context]
+
+        if self.context_args == ALL_CONTEXT or "__all__" in extra_context:
             resolved_context = context
         else:
-            resolved_context = template.Context(
+            resolved_context = template.Context()
+            ctx = {}
+            for k in extra_context:
+                if k in context:
+                    ctx[k] = context[k]
+                else:
+                    # this variable is nnot in context!
+                    logger.warning(
+                        f"Component {self} uses '{k}' in _extra_context, "
+                        f"but it is not available in current context."
+                    )
+            if ctx:
+                resolved_context.update(ctx)
+
+        if self.context_args != ALL_CONTEXT:
+            # update context with the explicitly given params. This may not
+            # happen if __all__ context is requested directly on the template tag.
+            resolved_context.update(
                 {k: v.resolve(context) for k, v in self.context_args.items()}
             )
 

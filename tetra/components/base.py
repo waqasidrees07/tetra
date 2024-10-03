@@ -77,8 +77,8 @@ def make_template(cls) -> Template:
             # TODO: turn this off when DEBUG=False
             from django.conf import settings
 
-            logger.warning(
-                f"Failed to compile inline template for component {cls.__name__}: {e}"
+            logger.error(
+                f"Failed to compile inline template for component '{cls.__name__}': {e}"
             )
             if settings.DEBUG:
                 making_lazy_after_exception = True
@@ -88,9 +88,12 @@ def make_template(cls) -> Template:
                         origin=origin,
                     )
                 )
-        # FIXME: when DEBUG=False and template compilation fails, the exception is
-        #  raised and teh `template` variable is None, and will crash next line
-        if not making_lazy_after_exception:
+            else:
+                raise ComponentException(
+                    f"Template compilation failed for component '{cls.__name__}': {e}"
+                )
+
+        if not making_lazy_after_exception and template is not None:
             for i, block_node in enumerate(
                 get_nodes_by_type_deep(template.nodelist, BlockNode)
             ):
@@ -436,7 +439,10 @@ class Component(BasicComponent, metaclass=ComponentMetaClass):
 
         component = decode_component(data["state"], request)
         if not isinstance(component, cls):
-            raise TypeError("Component of invalid type.")
+            raise TypeError(
+                f"Component '{component.__class__.__name__}' of invalid "
+                f"type, should be: {cls.__name__}."
+            )
 
         component.request = request
         if key:
@@ -967,6 +973,11 @@ class GenericObjectFormComponent(ModelFormComponent):
             "or both 'object' and '_fields', or override 'get_form_class()'"
         )
 
+    def load(self, object: models.Model, *args, **kwargs) -> None:
+        self.object = object
+        self._reset()
+        super().load(*args, **kwargs)
+
     def get_form(self, data=None, files=None, **kwargs):
         """Returns a form, bound to given model instance."""
         return super().get_form(data=data, files=files, instance=self.object, **kwargs)
@@ -992,20 +1003,21 @@ class GenericObjectFormComponent(ModelFormComponent):
                 else self.object.__name__.lower()
             )
 
-    def load(self, object, *args, **kwargs) -> None:
-        self.object = object
-        self.reset()
-        super().load(*args, **kwargs)
+    def _reset(self):
+        """Resets all form fields. This internal method is not exposed as a public
+        API and can be called by load() too."""
+        for field in self.get_form_class().base_fields:
+            if hasattr(self.object, field):
+                setattr(self, field, getattr(self.object, field))
+                # FIXME: does not work yet? include non-object fields like new_password1
 
     @public
     def reset(self):
         """Convenience method to be called by the frontend to reset the form.
 
         All values will be reset to the initial object values.
-        You can call this method from the backend or the frontend.
         """
-        for field in self.get_form_class().base_fields:
-            setattr(self, field, getattr(self.object, field))
+        self._reset()
 
     def form_valid(self, form) -> None:
         self.object = form.save()

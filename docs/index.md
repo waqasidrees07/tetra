@@ -27,7 +27,7 @@ Furthermore, components can expose attributes and methods as *public*, making th
 
 ## Walkthrough of a simple "To Do App"
 
-To introduce the main aspects of Tetra we will walkthrough the code implementing the [To Do App demo](#examples) on the homepage.
+To introduce the main aspects of Tetra we will walkthrough the code implementing the [To Do App demo](https://tetraframework.com/#examples) on the homepage.
 
 *If you haven't used Django before you should follow their [tutorial](https://docs.djangoproject.com/en/4.2/intro/tutorial01/) before coming back here.*
 
@@ -97,7 +97,7 @@ Then there is the template; this uses the standard Django template language. You
         </div>
         <div class="list-group">
             {% for todo in todos %}
-                {% @ to_do_item todo=todo key=todo.id / %}
+                {% @ ToDoItem todo=todo key=todo.id / %}
             {% endfor %}
         </div>
     </div>
@@ -225,7 +225,7 @@ As we are doing this outside of a Tetra component we need to explicitly load the
 {# index.html #}
 {% load tetra %}
 <h4>Your todo list:</h4>
-{% @ to_do_list / %}
+{% @ ToDoList / %}
 ```
 
  To get started, follow the [install instructions](install.md).

@@ -17,6 +17,7 @@ import pickle
 from io import BytesIO
 from .utils import isclassmethod
 from .templates import InlineOrigin
+from django.utils.functional import SimpleLazyObject, LazyObject
 
 
 class StateException(Exception):
@@ -36,6 +37,13 @@ def register_pickler(obj_type, prefix):
         return cls
 
     return dec
+
+
+def resolve_lazy_object(lazy_object: Model | LazyObject) -> Model:
+    """If it's a SimpleLazyObject, resolve it by accessing the underlying object."""
+    if isinstance(lazy_object, SimpleLazyObject):
+        return lazy_object._wrapped
+    return lazy_object
 
 
 @register_pickler(QuerySet, b"QuerySet")
@@ -143,6 +151,9 @@ class StatePickler(pickle.Pickler):
         # an exception.
         if isinstance(obj, Origin):
             obj.loader = None
+
+        # for LazyObjects, resolve them before pickling
+        obj = resolve_lazy_object(obj)
 
         # Hacky solution to prevent pickling Django Forms:
         # save form to a temporary attribute and then restore it after unpickling

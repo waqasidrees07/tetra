@@ -8,13 +8,22 @@ from django.db import models
 from django.utils.text import re_camel_case
 from django.template.loader import render_to_string
 from django.utils.timezone import is_aware
+from django.conf import settings
 
 
-def camel_case_to_underscore(value):
+def camel_case_to_underscore(value: str):
     """
-    Splits CamelCase and converts to lower case with underscores.
+    Splits camelCase and PascalCase and converts to lower case with underscores.
     """
     return re_camel_case.sub(r"_\1", value).strip("_").lower()
+
+
+def underscore_to_pascal_case(value: str):
+    """builds a PascalCase string from a snake_case like."""
+    # special case: value is already pascal or camel case, then don't touch it.
+    if not "_" in value and not value.islower():
+        return value
+    return "".join(word.capitalize() for word in value.split("_"))
 
 
 def render_styles(request):
@@ -30,6 +39,8 @@ def render_scripts(request, csrf_token):
             "libs": libs,
             "include_alpine": request.tetra_scripts_placeholder_include_alpine,
             "csrf_token": csrf_token,
+            "debug": settings.DEBUG
+            and request.META.get("REMOTE_ADDR") in settings.INTERNAL_IPS,
         },
     )
 
